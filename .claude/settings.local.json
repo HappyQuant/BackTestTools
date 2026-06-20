@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://124.223.213.95:8000/api/kline/LTCUSDT/1m/next?fromTime=$\\(date -d '300 days ago' +%s\\)000&&limit=5\")",
+      "Bash(curl -s \"http://124.223.213.95:8000/api/kline/BTCUSDT/1m/next?fromTime=$\\(date -d '300 days ago' +%s\\)000&&limit=5\")"
+    ]
+  }
+}

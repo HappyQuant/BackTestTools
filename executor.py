@@ -16,7 +16,7 @@ if __name__ == "__main__":
     load_dotenv()
     kline_provider = os.environ.get("KLINE_PROVIDER")
 
-    kline_symbol = KLineSymbol.LtcUsdt
+    kline_symbol = KLineSymbol.BtcUsdt
     kline_interval = KLineInterval.OneMinute
 
     start_ts = int(time.time()) - 86400 * 300
