@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import time
 
 from domain import KLineSymbol, KLineInterval
 
@@ -9,7 +10,7 @@ class BackTestConfig:
     symbol: KLineSymbol
     interval: KLineInterval
     start_ts: int
-    end_ts: int = 4294967295
+    end_ts: int = field(default_factory=lambda: int(time.time()))
 
     def __post_init__(self):
         if self.start_ts < 0:
