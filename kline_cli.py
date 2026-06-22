@@ -1,20 +1,36 @@
-import json
 import requests
 
 from enumeration import KLineSymbol, KLineInterval
 
 
+class KLineAPIError(Exception):
+    """K线API请求错误"""
+    pass
+
+
 def _fetch_klines(kline_provider: str, symbol: KLineSymbol, interval: KLineInterval,
                   direction: str, time_param: int, limit: int, proxies: dict = None) -> list:
-    assert limit <= 1000
-    url = '{}/api/kline/{}/{}/{}?{}={}&&limit={}'.format(
+    if limit > 1000:
+        raise ValueError("limit cannot exceed 1000")
+
+    url = '{}/api/kline/{}/{}/{}?{}={}&limit={}'.format(
         kline_provider, symbol.value, interval.value, direction,
         'endTime' if direction == 'previous' else 'fromTime', time_param * 1000, limit
     )
+
     session = requests.Session()
     session.trust_env = False
-    resp = session.get(url=url, proxies=proxies)
-    return json.loads(resp.text)
+
+    try:
+        resp = session.get(url=url, proxies=proxies, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.Timeout:
+        raise KLineAPIError(f"Request timeout for {url}")
+    except requests.exceptions.HTTPError as e:
+        raise KLineAPIError(f"HTTP error: {e}")
+    except requests.exceptions.RequestException as e:
+        raise KLineAPIError(f"Request failed: {e}")
 
 
 def get_previous_klines(kline_provider: str, symbol: KLineSymbol, interval: KLineInterval,

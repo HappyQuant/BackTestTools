@@ -1,7 +1,6 @@
 from collections import deque
-from typing import Optional
-
 from decimal import Decimal, ROUND_DOWN
+from typing import Optional
 
 from context import BackTestContext, KLine, Order
 from strategies import IStrategy
@@ -11,12 +10,17 @@ class MovingAverageTrendStrategy(IStrategy):
     def __init__(self, context: BackTestContext,
                  kline_wnd_size: int, avg_line_wnd_size: int,
                  buy_volatility_rate: Decimal, sell_volatility_rate: Decimal, drawdown_rate: Decimal):
-        IStrategy.__init__(self, context)
+        super().__init__(context)
+
+        if kline_wnd_size <= 0 or avg_line_wnd_size <= 0:
+            raise ValueError("Window sizes must be positive")
+
         self.kline_wnd_size: int = kline_wnd_size
         self.avg_line_wnd_size: int = avg_line_wnd_size
         self.buy_volatility_rate: Decimal = buy_volatility_rate
         self.sell_volatility_rate: Decimal = sell_volatility_rate
         self.drawdown_rate: Decimal = drawdown_rate
+
         self.kline_wnd: deque[KLine] = deque(maxlen=kline_wnd_size)
         self.avg_line_wnd: deque[Decimal] = deque(maxlen=avg_line_wnd_size)
         self.first_kline: Optional[KLine] = None
@@ -40,21 +44,31 @@ class MovingAverageTrendStrategy(IStrategy):
             return
 
         base_balance, quote_balance = self.context.get_currency_balances()
+
         if base_balance > Decimal("0"):
             avg_max = max(self.avg_line_wnd)
+            if avg_max == Decimal("0"):
+                return
+
             volatility = (avg_max - self.avg_line_wnd[-1]) / avg_max
 
             if volatility >= self.sell_volatility_rate:
                 sell_price = kline.close_price
                 print("Sell:", sell_price, base_balance)
                 self.context.sell(kline.open_time, sell_price, base_balance)
+                return
 
-            if (kline.close_price - self.last_buy_order.price) / self.last_buy_order.price < -self.drawdown_rate:
-                sell_price = kline.close_price
-                print("Sell:", sell_price, base_balance)
-                self.context.sell(kline.open_time, sell_price, base_balance)
+            if self.last_buy_order is not None:
+                price_change = (kline.close_price - self.last_buy_order.price) / self.last_buy_order.price
+                if price_change < -self.drawdown_rate:
+                    sell_price = kline.close_price
+                    print("Sell:", sell_price, base_balance)
+                    self.context.sell(kline.open_time, sell_price, base_balance)
         else:
             avg_min = min(self.avg_line_wnd)
+            if avg_min == Decimal("0"):
+                return
+
             volatility = (self.avg_line_wnd[-1] - avg_min) / avg_min
 
             if volatility >= self.buy_volatility_rate:
