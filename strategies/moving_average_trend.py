@@ -2,79 +2,86 @@ from collections import deque
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
-from context import BackTestContext, KLine, Order
-from strategies import IStrategy
+from domain import KLine, Order
+from engine import StrategyBase, ITradingContext
 
 
-class MovingAverageTrendStrategy(IStrategy):
-    def __init__(self, context: BackTestContext,
-                 kline_wnd_size: int, avg_line_wnd_size: int,
-                 buy_volatility_rate: Decimal, sell_volatility_rate: Decimal, drawdown_rate: Decimal):
+class MovingAverageTrendStrategy(StrategyBase):
+    """均线趋势策略"""
+
+    def __init__(
+        self,
+        context: ITradingContext,
+        kline_wnd_size: int,
+        avg_wnd_size: int,
+        buy_volatility_rate: Decimal,
+        sell_volatility_rate: Decimal,
+        drawdown_rate: Decimal
+    ):
         super().__init__(context)
 
-        if kline_wnd_size <= 0 or avg_line_wnd_size <= 0:
+        if kline_wnd_size <= 0 or avg_wnd_size <= 0:
             raise ValueError("Window sizes must be positive")
 
-        self.kline_wnd_size: int = kline_wnd_size
-        self.avg_line_wnd_size: int = avg_line_wnd_size
-        self.buy_volatility_rate: Decimal = buy_volatility_rate
-        self.sell_volatility_rate: Decimal = sell_volatility_rate
-        self.drawdown_rate: Decimal = drawdown_rate
+        self._kline_wnd_size = kline_wnd_size
+        self._avg_wnd_size = avg_wnd_size
+        self._buy_volatility = buy_volatility_rate
+        self._sell_volatility = sell_volatility_rate
+        self._drawdown_rate = drawdown_rate
 
-        self.kline_wnd: deque[KLine] = deque(maxlen=kline_wnd_size)
-        self.avg_line_wnd: deque[Decimal] = deque(maxlen=avg_line_wnd_size)
-        self.first_kline: Optional[KLine] = None
-        self.last_kline: Optional[KLine] = None
-        self.last_buy_order: Optional[Order] = None
+        self._kline_wnd: deque[KLine] = deque(maxlen=kline_wnd_size)
+        self._avg_wnd: deque[Decimal] = deque(maxlen=avg_wnd_size)
+        self._last_buy_order: Optional[Order] = None
 
-    def run(self, kline: KLine):
-        if self.first_kline is None:
-            self.first_kline = kline
-        self.last_kline = kline
+    def _process_kline(self, kline: KLine) -> None:
+        self._kline_wnd.append(kline)
 
-        self.kline_wnd.append(kline)
-
-        if len(self.kline_wnd) < self.kline_wnd_size:
+        if len(self._kline_wnd) < self._kline_wnd_size:
             return
 
-        avg_price: Decimal = sum(kl.close_price for kl in self.kline_wnd) / Decimal(self.kline_wnd_size)
-        self.avg_line_wnd.append(avg_price)
+        avg_price = sum(k.close_price for k in self._kline_wnd) / Decimal(self._kline_wnd_size)
+        self._avg_wnd.append(avg_price)
 
-        if len(self.avg_line_wnd) < self.avg_line_wnd_size:
+        if len(self._avg_wnd) < self._avg_wnd_size:
             return
 
-        base_balance, quote_balance = self.context.get_currency_balances()
+        self._execute_strategy(kline)
+
+    def _execute_strategy(self, kline: KLine) -> None:
+        base_balance, quote_balance = self.context.get_balance()
 
         if base_balance > Decimal("0"):
-            avg_max = max(self.avg_line_wnd)
-            if avg_max == Decimal("0"):
-                return
-
-            volatility = (avg_max - self.avg_line_wnd[-1]) / avg_max
-
-            if volatility >= self.sell_volatility_rate:
-                sell_price = kline.close_price
-                print("Sell:", sell_price, base_balance)
-                self.context.sell(kline.open_time, sell_price, base_balance)
-                return
-
-            if self.last_buy_order is not None:
-                price_change = (kline.close_price - self.last_buy_order.price) / self.last_buy_order.price
-                if price_change < -self.drawdown_rate:
-                    sell_price = kline.close_price
-                    print("Sell:", sell_price, base_balance)
-                    self.context.sell(kline.open_time, sell_price, base_balance)
+            self._handle_position(kline, base_balance)
         else:
-            avg_min = min(self.avg_line_wnd)
-            if avg_min == Decimal("0"):
-                return
+            self._handle_no_position(kline, quote_balance)
 
-            volatility = (self.avg_line_wnd[-1] - avg_min) / avg_min
+    def _handle_position(self, kline: KLine, base_balance: Decimal) -> None:
+        """持有仓位时的策略"""
+        avg_max = max(self._avg_wnd)
+        if avg_max == Decimal("0"):
+            return
 
-            if volatility >= self.buy_volatility_rate:
-                buy_price = kline.close_price
-                quantity = quote_balance / buy_price
-                quantity = quantity.quantize(Decimal("0.0000"), rounding=ROUND_DOWN)
-                print("Buy:", buy_price, quantity)
-                self.context.buy(kline.open_time, buy_price, quantity)
-                self.last_buy_order = self.context.orders[-1]
+        volatility = (avg_max - self._avg_wnd[-1]) / avg_max
+
+        if volatility >= self._sell_volatility:
+            self.context.sell(kline.open_time, kline.close_price, base_balance)
+            return
+
+        if self._last_buy_order is not None:
+            price_change = (kline.close_price - self._last_buy_order.price) / self._last_buy_order.price
+            if price_change < -self._drawdown_rate:
+                self.context.sell(kline.open_time, kline.close_price, base_balance)
+
+    def _handle_no_position(self, kline: KLine, quote_balance: Decimal) -> None:
+        """空仓时的策略"""
+        avg_min = min(self._avg_wnd)
+        if avg_min == Decimal("0"):
+            return
+
+        volatility = (self._avg_wnd[-1] - avg_min) / avg_min
+
+        if volatility >= self._buy_volatility:
+            quantity = quote_balance / kline.close_price
+            quantity = quantity.quantize(Decimal("0.0000"), rounding=ROUND_DOWN)
+            order = self.context.buy(kline.open_time, kline.close_price, quantity)
+            self._last_buy_order = order
