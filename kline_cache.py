@@ -1,15 +1,13 @@
-#!/usr/bin/env python
-# encoding: utf-8
 from typing import Optional, List
 
-from _decimal import Decimal
+from decimal import Decimal
 
 from context import BackTestContext
 from kline import KLine
 from kline_cli import get_next_klines
 
 
-class BackTestKLineCached(object):
+class BackTestKLineCache:
     def __init__(self, context: BackTestContext):
         # 游标K线
         self.cursor_kline: Optional[KLine] = None
@@ -43,7 +41,7 @@ class BackTestKLineCached(object):
                 unit = self.context.interval.value[-1]
                 assert unit in ("s", "m", "h", "d")
                 digital = int(self.context.interval.value[:-1])
-                interval = BackTestKLineCached.get_interval(unit, digital)
+                interval = BackTestKLineCache.get_interval(unit, digital)
 
                 # 推算 next_klines_start_ts
                 # 扩充本地K线缓冲区

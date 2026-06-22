@@ -1,9 +1,7 @@
-#!/usr/bin/env python
-# encoding: utf-8
 from enumeration import Side
 from typing import Optional, List, Tuple
 
-from _decimal import Decimal
+from decimal import Decimal
 
 from kline import KLine
 from kline_cli import KLineSymbol, KLineInterval, get_next_klines

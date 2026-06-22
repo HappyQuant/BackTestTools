@@ -1,13 +1,11 @@
-#!/usr/bin/env python
-# encoding: utf-8
 import os
 import time
-from _decimal import Decimal
+from decimal import Decimal
 
 from dotenv import load_dotenv
 
 from context import BackTestContext
-from kline_cache import BackTestKLineCached
+from kline_cache import BackTestKLineCache
 from enumeration import KLineSymbol, KLineInterval
 from strategies import IStrategy
 from strategies.moving_average_trend import MovingAverageTrendStrategy
@@ -29,9 +27,9 @@ if __name__ == "__main__":
     strategy = MovingAverageTrendStrategy(context, 50, 50,
                                           Decimal("0.04"), Decimal("0.04"), Decimal("0.05"))
 
-    kline_cached = BackTestKLineCached(context)
+    kline_cache = BackTestKLineCache(context)
 
-    for kline in kline_cached:
+    for kline in kline_cache:
         strategy.run(kline)
 
     print(strategy.first_kline.close_price)
