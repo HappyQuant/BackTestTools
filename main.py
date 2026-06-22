@@ -12,6 +12,7 @@ from data import APIKLineProvider
 from domain import Account, KLineSymbol, KLineInterval, Side
 from engine import BackTestConfig, BackTestEngine
 from strategies import MovingAverageTrendStrategy
+from comparison import run_comparison_backtest, print_comparison_report
 
 
 def format_timestamp(ts: int) -> str:
@@ -44,10 +45,9 @@ def print_backtest_summary(
 
     # 2. 策略参数
     print("\n【策略参数】")
-    print(f"  K线窗口: {strategy._kline_wnd_size}")
-    print(f"  均线窗口: {strategy._avg_wnd_size}")
-    print(f"  买入阈值: {float(strategy._buy_volatility) * 100:.2f}%")
-    print(f"  卖险信号阈值: {float(strategy._sell_volatility) * 100:.2f}%")
+    print(f"  快均线周期: {strategy.fast_ma_period}")
+    print(f"  慢均线周期: {strategy.slow_ma_period}")
+    print(f"  趋势强度阈值: {float(strategy._trend_strength) * 100:.2f}%")
     print(f"  止损率: {float(strategy._drawdown_rate) * 100:.2f}%")
     if strategy._take_profit_rate:
         print(f"  止盈率: {float(strategy._take_profit_rate) * 100:.2f}%")
@@ -145,7 +145,7 @@ def main():
     start_ts = int(time.time()) - 86400 * 300
     config = BackTestConfig(
         symbol=KLineSymbol.BtcUsdt,
-        interval=KLineInterval.OneMinute,
+        interval=KLineInterval.FiveMinute,
         start_ts=start_ts
     )
 
@@ -160,10 +160,9 @@ def main():
     # 创建策略
     strategy = MovingAverageTrendStrategy(
         context=account,
-        kline_wnd_size=50,
-        avg_wnd_size=50,
-        buy_volatility_rate=Decimal("0.001"),
-        sell_volatility_rate=Decimal("0.001"),
+        fast_ma_period=10,
+        slow_ma_period=30,
+        trend_strength=Decimal("0.002"),
         drawdown_rate=Decimal("0.05"),
         take_profit_rate=Decimal("0.10")
     )
@@ -177,5 +176,28 @@ def main():
     print_backtest_summary(account, strategy, config, initial_quote)
 
 
+def run_comparison():
+    """运行多级别对比测试"""
+    load_dotenv()
+
+    kline_provider_url = os.environ.get("KLINE_PROVIDER")
+    if not kline_provider_url:
+        raise ValueError("KLINE_PROVIDER environment variable is required")
+
+    results = run_comparison_backtest(
+        provider_url=kline_provider_url,
+        symbol=KLineSymbol.BtcUsdt,
+        days=300,
+        initial_quote=Decimal("10000")
+    )
+
+    print_comparison_report(results)
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--compare":
+        run_comparison()
+    else:
+        main()
