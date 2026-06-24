@@ -43,7 +43,6 @@ class MovingAverageTrendStrategy(StrategyBase):
         self._last_buy_order: Optional[Order] = None
         self._prev_fast_ma: Optional[Decimal] = None
         self._prev_slow_ma: Optional[Decimal] = None
-        self._pending_signal: Optional[str] = None
 
         self._buy_count = 0
         self._sell_count = 0
@@ -74,18 +73,17 @@ class MovingAverageTrendStrategy(StrategyBase):
     def take_profit_count(self) -> int:
         return self._take_profit_count
 
-    def _on_order_executed(self, order: Order) -> None:
+    def _on_order_executed(self, order: Order, signal: Optional[str] = None) -> None:
         if order.side == Side.Buy:
             self._last_buy_order = order
             self._buy_count += 1
         else:
-            if self._pending_signal == "stop_loss":
+            if signal == "stop_loss":
                 self._stop_loss_count += 1
-            elif self._pending_signal == "take_profit":
+            elif signal == "take_profit":
                 self._take_profit_count += 1
             self._sell_count += 1
             self._last_buy_order = None
-            self._pending_signal = None
 
     def _calculate_ma(self, period: int) -> Optional[Decimal]:
         if len(self._price_window) < period:
@@ -125,19 +123,16 @@ class MovingAverageTrendStrategy(StrategyBase):
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
 
             if price_change < -self._drawdown_rate:
-                self._pending_signal = "stop_loss"
-                self.context.sell(kline.open_time, current_price, base_balance)
+                self.context.sell(kline.open_time, current_price, base_balance, signal="stop_loss")
                 return
 
             if self._take_profit_rate is not None and price_change > self._take_profit_rate:
-                self._pending_signal = "take_profit"
-                self.context.sell(kline.open_time, current_price, base_balance)
+                self.context.sell(kline.open_time, current_price, base_balance, signal="take_profit")
                 return
 
         if self._prev_fast_ma is not None and self._prev_slow_ma is not None:
             if self._prev_fast_ma > self._prev_slow_ma and fast_ma < slow_ma:
-                self._pending_signal = "signal"
-                self.context.sell(kline.open_time, current_price, base_balance)
+                self.context.sell(kline.open_time, current_price, base_balance, signal="signal")
 
     def _handle_no_position(self, kline: KLine, quote_balance: Decimal, fast_ma: Decimal, slow_ma: Decimal) -> None:
         current_price = kline.close_price
@@ -147,7 +142,7 @@ class MovingAverageTrendStrategy(StrategyBase):
 
         if self._prev_fast_ma < self._prev_slow_ma and fast_ma > slow_ma:
             # 趋势强度确认：快均线斜率（上涨动量）
-            if self._prev_fast_ma is not None and self._prev_fast_ma > Decimal("0"):
+            if self._prev_fast_ma > Decimal("0"):
                 fast_ma_slope = (fast_ma - self._prev_fast_ma) / self._prev_fast_ma
             else:
                 fast_ma_slope = Decimal("0")

@@ -70,10 +70,7 @@ def print_backtest_report(
     # 2. 策略参数
     print("\n【策略参数】")
     for name, value in strategy_params.items():
-        if isinstance(value, Decimal):
-            print(f"  {name}: {float(value) * 100 if float(value) < 1 and name.endswith('rate') else float(value)}")
-        else:
-            print(f"  {name}: {value}")
+        print(f"  {name}: {value}")
 
     # 3. 初始资金
     print("\n【初始资金】")

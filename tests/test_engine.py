@@ -2,7 +2,7 @@ import unittest
 from decimal import Decimal
 
 from data import InMemoryKLineProvider, generate_mock_klines
-from domain import Account, KLineSymbol, KLineInterval
+from domain import Account, KLineSymbol, KLineInterval, Side
 from engine import BackTestConfig, BackTestEngine, StrategyBase
 
 
@@ -15,8 +15,7 @@ class SimpleTestStrategy(StrategyBase):
         self.buy_called = False
         self.sell_called = False
 
-    def _on_order_executed(self, order):
-        from domain import Side
+    def _on_order_executed(self, order, signal=None):
         if order.side == Side.Buy:
             self.buy_called = True
         else:

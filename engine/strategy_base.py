@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Protocol, runtime_checkable
+from typing import List, Optional, Protocol, runtime_checkable
 
 from domain import KLine, Order
 
@@ -8,11 +8,11 @@ from domain import KLine, Order
 class ITradingContext(Protocol):
     """策略交易上下文接口，策略通过此接口与回测引擎交互"""
 
-    def buy(self, ts: int, price: Decimal, quantity: Decimal) -> Order:
+    def buy(self, ts: int, price: Decimal, quantity: Decimal, signal: Optional[str] = None) -> None:
         """买入"""
         ...
 
-    def sell(self, ts: int, price: Decimal, quantity: Decimal) -> Order:
+    def sell(self, ts: int, price: Decimal, quantity: Decimal, signal: Optional[str] = None) -> None:
         """卖出"""
         ...
 
@@ -65,7 +65,7 @@ class StrategyBase:
         self._last_kline = kline
         self._process_kline(kline)
 
-    def _on_order_executed(self, order: Order) -> None:
+    def _on_order_executed(self, order: Order, signal: Optional[str] = None) -> None:
         """当延迟执行的订单实际成交时调用，子类可重写"""
         pass
 

@@ -8,8 +8,17 @@ from decimal import Decimal
 from typing import Optional
 
 from domain import KLine, Order, Side
-from domain.account import Account
+from domain.account import Account, InsufficientBalanceError
 from engine.strategy_base import ITradingContext
+
+
+class PendingOrder:
+    __slots__ = ('side', 'quantity', 'signal')
+
+    def __init__(self, side: Side, quantity: Decimal, signal: Optional[str] = None):
+        self.side = side
+        self.quantity = quantity
+        self.signal = signal
 
 
 class PendingOrderBroker(ITradingContext):
@@ -17,58 +26,41 @@ class PendingOrderBroker(ITradingContext):
 
     def __init__(self, account: Account):
         self._account = account
-        self._pending_buy_quantity: Optional[Decimal] = None
-        self._pending_sell_quantity: Optional[Decimal] = None
-        self._last_executed_order: Optional[Order] = None
+        self._pending: Optional[PendingOrder] = None
 
     def get_balance(self) -> tuple[Decimal, Decimal]:
         return self._account.get_balance()
 
-    def buy(self, ts: int, price: Decimal, quantity: Decimal) -> Order:
-        """策略调用buy时，仅记录意图"""
-        if self._pending_buy_quantity is not None or self._pending_sell_quantity is not None:
+    def buy(self, ts: int, price: Decimal, quantity: Decimal, signal: Optional[str] = None) -> None:
+        if self._pending is not None:
             raise ValueError("已有待执行订单，不能重复下单")
-        self._pending_buy_quantity = quantity
-        # 返回占位Order（price为信号价格，实际成交价在execute_pending时确定）
-        return Order(ts, Side.Buy, price, quantity, Decimal("0"))
+        self._pending = PendingOrder(Side.Buy, quantity, signal)
 
-    def sell(self, ts: int, price: Decimal, quantity: Decimal) -> Order:
-        """策略调用sell时，仅记录意图"""
-        if self._pending_buy_quantity is not None or self._pending_sell_quantity is not None:
+    def sell(self, ts: int, price: Decimal, quantity: Decimal, signal: Optional[str] = None) -> None:
+        if self._pending is not None:
             raise ValueError("已有待执行订单，不能重复下单")
-        self._pending_sell_quantity = quantity
-        return Order(ts, Side.Sell, price, quantity, Decimal("0"))
+        self._pending = PendingOrder(Side.Sell, quantity, signal)
 
-    def execute_pending(self, kline: KLine) -> Optional[Order]:
-        """在下一根K线到来时，以开盘价执行待处理订单"""
-        self._last_executed_order = None
+    def execute_pending(self, kline: KLine) -> Optional[tuple[Order, Optional[str]]]:
+        """在下一根K线到来时，以开盘价执行待处理订单
 
-        if self._pending_buy_quantity is not None:
-            quantity = self._pending_buy_quantity
-            self._pending_buy_quantity = None
-            # 检查是否有足够余额（开盘价可能不同于信号价）
-            cost = kline.open_price * quantity
-            fee = cost * self._account.fee_rate
-            if cost + fee > self._account.quote_balance:
-                return None
-            result = self._account.buy(kline.open_time, kline.open_price, quantity)
-            self._last_executed_order = result
-            return result
+        Returns:
+            (executed_order, signal) 如果成功执行，或 None 如果没有待处理订单或执行失败
+        """
+        if self._pending is None:
+            return None
 
-        if self._pending_sell_quantity is not None:
-            quantity = self._pending_sell_quantity
-            self._pending_sell_quantity = None
-            if quantity > self._account.base_balance:
-                return None
-            result = self._account.sell(kline.open_time, kline.open_price, quantity)
-            self._last_executed_order = result
-            return result
+        order = self._pending
+        self._pending = None
 
-        return None
-
-    @property
-    def last_executed_order(self) -> Optional[Order]:
-        return self._last_executed_order
+        try:
+            if order.side == Side.Buy:
+                result = self._account.buy(kline.open_time, kline.open_price, order.quantity)
+            else:
+                result = self._account.sell(kline.open_time, kline.open_price, order.quantity)
+            return result, order.signal
+        except InsufficientBalanceError:
+            return None
 
     @property
     def account(self) -> Account:
