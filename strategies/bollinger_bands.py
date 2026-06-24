@@ -11,7 +11,7 @@ from decimal import Decimal, ROUND_DOWN
 from math import sqrt
 from typing import Optional
 
-from domain import KLine, Order
+from domain import KLine, Order, Side
 from engine import StrategyBase, ITradingContext
 
 
@@ -40,6 +40,7 @@ class BollingerBandsStrategy(StrategyBase):
 
         self._price_wnd: deque[Decimal] = deque(maxlen=period)
         self._last_buy_order: Optional[Order] = None
+        self._pending_signal: Optional[str] = None
 
         self._buy_count = 0
         self._sell_count = 0
@@ -62,13 +63,25 @@ class BollingerBandsStrategy(StrategyBase):
     def take_profit_count(self) -> int:
         return self._take_profit_count
 
+    def _on_order_executed(self, order: Order) -> None:
+        if order.side == Side.Buy:
+            self._last_buy_order = order
+            self._buy_count += 1
+        else:
+            if self._pending_signal == "stop_loss":
+                self._stop_loss_count += 1
+            elif self._pending_signal == "take_profit":
+                self._take_profit_count += 1
+            self._sell_count += 1
+            self._last_buy_order = None
+            self._pending_signal = None
+
     def _calc_bands(self) -> tuple[Decimal, Decimal, Decimal]:
-        """计算布林带：中轨、上轨、下轨"""
         prices = list(self._price_wnd)
         n = len(prices)
-        mid = sum(prices) / Decimal(n)
+        mid = sum(prices, Decimal("0")) / Decimal(n)
 
-        variance = sum((p - mid) ** 2 for p in prices) / Decimal(n)
+        variance = sum(((p - mid) ** 2 for p in prices), Decimal("0")) / Decimal(n)
         std = Decimal(str(sqrt(float(variance))))
 
         upper = mid + self._num_std * std
@@ -92,39 +105,28 @@ class BollingerBandsStrategy(StrategyBase):
             self._handle_no_position(kline, quote_balance, current_price, lower)
 
     def _handle_position(self, kline: KLine, base_balance: Decimal, current_price: Decimal, upper: Decimal) -> None:
-        # 止损
         if self._last_buy_order is not None and self._drawdown_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change < -self._drawdown_rate:
+                self._pending_signal = "stop_loss"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._stop_loss_count += 1
-                self._last_buy_order = None
                 return
 
-        # 止盈
         if self._last_buy_order is not None and self._take_profit_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change > self._take_profit_rate:
+                self._pending_signal = "take_profit"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._take_profit_count += 1
-                self._last_buy_order = None
                 return
 
-        # 触及上轨卖出
         if current_price >= upper:
+            self._pending_signal = "signal"
             self.context.sell(kline.open_time, current_price, base_balance)
-            self._sell_count += 1
-            self._last_buy_order = None
 
     def _handle_no_position(self, kline: KLine, quote_balance: Decimal, current_price: Decimal, lower: Decimal) -> None:
-        # 触及下轨买入
         if current_price <= lower:
             quantity = quote_balance / current_price
             quantity = quantity.quantize(Decimal("0.0000"), rounding=ROUND_DOWN)
 
             if quantity > Decimal("0"):
-                order = self.context.buy(kline.open_time, current_price, quantity)
-                self._last_buy_order = order
-                self._buy_count += 1
+                self.context.buy(kline.open_time, current_price, quantity)

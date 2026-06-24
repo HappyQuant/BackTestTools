@@ -1,7 +1,7 @@
+from decimal import Decimal
 from typing import List, Protocol, runtime_checkable
 
 from domain import KLine, Order
-from domain.account import Decimal
 
 
 @runtime_checkable
@@ -64,6 +64,10 @@ class StrategyBase:
             self._first_kline = kline
         self._last_kline = kline
         self._process_kline(kline)
+
+    def _on_order_executed(self, order: Order) -> None:
+        """当延迟执行的订单实际成交时调用，子类可重写"""
+        pass
 
     def _process_kline(self, kline: KLine) -> None:
         """子类实现具体策略逻辑"""

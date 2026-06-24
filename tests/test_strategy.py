@@ -20,8 +20,14 @@ class TestMovingAverageTrendStrategy(unittest.TestCase):
 
     def test_strategy_creation(self):
         account = Account()
+        engine = BackTestEngine(self.provider, BackTestConfig(
+            symbol=KLineSymbol.BtcUsdt,
+            interval=KLineInterval.OneMinute,
+            start_ts=1000,
+            end_ts=3000
+        ), account)
         strategy = MovingAverageTrendStrategy(
-            context=account,
+            context=engine.broker,
             fast_ma_period=10,
             slow_ma_period=30,
             trend_strength=Decimal("0.002"),
@@ -31,9 +37,15 @@ class TestMovingAverageTrendStrategy(unittest.TestCase):
 
     def test_strategy_invalid_window(self):
         account = Account()
+        engine = BackTestEngine(self.provider, BackTestConfig(
+            symbol=KLineSymbol.BtcUsdt,
+            interval=KLineInterval.OneMinute,
+            start_ts=1000,
+            end_ts=3000
+        ), account)
         with self.assertRaises(ValueError):
             MovingAverageTrendStrategy(
-                context=account,
+                context=engine.broker,
                 fast_ma_period=0,
                 slow_ma_period=30,
                 trend_strength=Decimal("0.002"),
@@ -41,11 +53,16 @@ class TestMovingAverageTrendStrategy(unittest.TestCase):
             )
 
     def test_strategy_fast_greater_than_slow(self):
-        """快均线周期不能大于等于慢均线周期"""
         account = Account()
+        engine = BackTestEngine(self.provider, BackTestConfig(
+            symbol=KLineSymbol.BtcUsdt,
+            interval=KLineInterval.OneMinute,
+            start_ts=1000,
+            end_ts=3000
+        ), account)
         with self.assertRaises(ValueError):
             MovingAverageTrendStrategy(
-                context=account,
+                context=engine.broker,
                 fast_ma_period=30,
                 slow_ma_period=30,
                 trend_strength=Decimal("0.002"),
@@ -53,7 +70,6 @@ class TestMovingAverageTrendStrategy(unittest.TestCase):
             )
 
     def test_strategy_with_multiple_strategies(self):
-        """测试多策略并行"""
         config = BackTestConfig(
             symbol=KLineSymbol.BtcUsdt,
             interval=KLineInterval.OneMinute,
@@ -69,26 +85,24 @@ class TestMovingAverageTrendStrategy(unittest.TestCase):
         account2.set_balance(Decimal("0"), Decimal("5000"))
         account2.set_fee_rate(Decimal("0.001"))
 
+        engine1 = BackTestEngine(self.provider, config, account1)
         strategy1 = MovingAverageTrendStrategy(
-            context=account1,
+            context=engine1.broker,
             fast_ma_period=10,
             slow_ma_period=30,
             trend_strength=Decimal("0.002"),
             drawdown_rate=Decimal("0.01")
         )
+        engine1.add_strategy(strategy1)
 
+        engine2 = BackTestEngine(self.provider, config, account2)
         strategy2 = MovingAverageTrendStrategy(
-            context=account2,
+            context=engine2.broker,
             fast_ma_period=5,
             slow_ma_period=20,
             trend_strength=Decimal("0.003"),
             drawdown_rate=Decimal("0.02")
         )
-
-        engine1 = BackTestEngine(self.provider, config, account1)
-        engine1.add_strategy(strategy1)
-
-        engine2 = BackTestEngine(self.provider, config, account2)
         engine2.add_strategy(strategy2)
 
         engine1.run()
@@ -117,7 +131,6 @@ class TestComparison(unittest.TestCase):
         self.provider = InMemoryKLineProvider(self.klines)
 
     def test_strategy_config_creation(self):
-        """测试策略配置创建"""
         config = StrategyConfig(
             fast_ma_period=10,
             slow_ma_period=30,
@@ -128,18 +141,15 @@ class TestComparison(unittest.TestCase):
         self.assertEqual(config.slow_ma_period, 30)
 
     def test_strategy_presets(self):
-        """测试预设策略配置"""
         self.assertIn("conservative", STRATEGY_PRESETS)
         self.assertIn("balanced", STRATEGY_PRESETS)
         self.assertIn("aggressive", STRATEGY_PRESETS)
 
-        # 验证保守配置参数
         conservative = STRATEGY_PRESETS["conservative"]
         self.assertEqual(conservative.fast_ma_period, 20)
         self.assertEqual(conservative.slow_ma_period, 50)
 
     def test_single_backtest(self):
-        """测试单次回测"""
         config = StrategyConfig(
             fast_ma_period=10,
             slow_ma_period=30,
@@ -162,7 +172,6 @@ class TestComparison(unittest.TestCase):
         self.assertGreaterEqual(result.total_value, Decimal("0"))
 
     def test_different_presets_comparison(self):
-        """测试不同预设对比"""
         results = []
 
         for preset_name in ["conservative", "balanced", "aggressive"]:
@@ -180,11 +189,7 @@ class TestComparison(unittest.TestCase):
             results.append(result)
 
         self.assertEqual(len(results), 3)
-
-        # 验证不同预设产生不同结果
         buy_counts = [r.buy_count for r in results]
-        # 激进策略应该有更多交易机会（因为参数更宽松）
-        # 但由于模拟数据是线性增长，可能不会有交易
         self.assertTrue(all(c >= 0 for c in buy_counts))
 
 

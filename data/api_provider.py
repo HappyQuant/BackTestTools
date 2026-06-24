@@ -1,10 +1,10 @@
+from decimal import Decimal
 from typing import List
 
 import requests
 
 from data.provider import IKLineProvider
 from domain import KLine, KLineSymbol, KLineInterval
-from domain.kline import Decimal
 
 
 class KLineAPIError(Exception):

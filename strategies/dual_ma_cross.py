@@ -10,7 +10,7 @@ from collections import deque
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
-from domain import KLine, Order
+from domain import KLine, Order, Side
 from engine import StrategyBase, ITradingContext
 
 
@@ -41,6 +41,7 @@ class DualMACrossStrategy(StrategyBase):
         self._slow_wnd: deque[Decimal] = deque(maxlen=slow_period)
         self._last_buy_order: Optional[Order] = None
         self._prev_fast_above_slow: Optional[bool] = None
+        self._pending_signal: Optional[str] = None
 
         self._buy_count = 0
         self._sell_count = 0
@@ -63,6 +64,19 @@ class DualMACrossStrategy(StrategyBase):
     def take_profit_count(self) -> int:
         return self._take_profit_count
 
+    def _on_order_executed(self, order: Order) -> None:
+        if order.side == Side.Buy:
+            self._last_buy_order = order
+            self._buy_count += 1
+        else:
+            if self._pending_signal == "stop_loss":
+                self._stop_loss_count += 1
+            elif self._pending_signal == "take_profit":
+                self._take_profit_count += 1
+            self._sell_count += 1
+            self._last_buy_order = None
+            self._pending_signal = None
+
     def _process_kline(self, kline: KLine) -> None:
         self._fast_wnd.append(kline.close_price)
         self._slow_wnd.append(kline.close_price)
@@ -70,8 +84,8 @@ class DualMACrossStrategy(StrategyBase):
         if len(self._slow_wnd) < self._slow_period:
             return
 
-        fast_avg = sum(self._fast_wnd) / Decimal(len(self._fast_wnd))
-        slow_avg = sum(self._slow_wnd) / Decimal(len(self._slow_wnd))
+        fast_avg = sum(self._fast_wnd, Decimal("0")) / Decimal(len(self._fast_wnd))
+        slow_avg = sum(self._slow_wnd, Decimal("0")) / Decimal(len(self._slow_wnd))
 
         fast_above_slow = fast_avg > slow_avg
 
@@ -91,40 +105,29 @@ class DualMACrossStrategy(StrategyBase):
     def _handle_position(self, kline: KLine, base_balance: Decimal, fast_above_slow: bool) -> None:
         current_price = kline.close_price
 
-        # 止损
         if self._last_buy_order is not None and self._drawdown_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change < -self._drawdown_rate:
+                self._pending_signal = "stop_loss"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._stop_loss_count += 1
-                self._last_buy_order = None
                 return
 
-        # 止盈
         if self._last_buy_order is not None and self._take_profit_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change > self._take_profit_rate:
+                self._pending_signal = "take_profit"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._take_profit_count += 1
-                self._last_buy_order = None
                 return
 
-        # 死叉卖出
         if self._prev_fast_above_slow and not fast_above_slow:
+            self._pending_signal = "signal"
             self.context.sell(kline.open_time, current_price, base_balance)
-            self._sell_count += 1
-            self._last_buy_order = None
 
     def _handle_no_position(self, kline: KLine, quote_balance: Decimal, fast_above_slow: bool) -> None:
-        # 金叉买入
         if not self._prev_fast_above_slow and fast_above_slow:
             current_price = kline.close_price
             quantity = quote_balance / current_price
             quantity = quantity.quantize(Decimal("0.0000"), rounding=ROUND_DOWN)
 
             if quantity > Decimal("0"):
-                order = self.context.buy(kline.open_time, current_price, quantity)
-                self._last_buy_order = order
-                self._buy_count += 1
+                self.context.buy(kline.open_time, current_price, quantity)

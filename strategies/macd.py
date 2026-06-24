@@ -9,7 +9,7 @@ MACD策略
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
-from domain import KLine, Order
+from domain import KLine, Order, Side
 from engine import StrategyBase, ITradingContext
 
 
@@ -44,6 +44,7 @@ class MACDStrategy(StrategyBase):
         self._kline_count = 0
         self._last_buy_order: Optional[Order] = None
         self._prev_dif_above_dea: Optional[bool] = None
+        self._pending_signal: Optional[str] = None
 
         self._buy_count = 0
         self._sell_count = 0
@@ -66,9 +67,21 @@ class MACDStrategy(StrategyBase):
     def take_profit_count(self) -> int:
         return self._take_profit_count
 
+    def _on_order_executed(self, order: Order) -> None:
+        if order.side == Side.Buy:
+            self._last_buy_order = order
+            self._buy_count += 1
+        else:
+            if self._pending_signal == "stop_loss":
+                self._stop_loss_count += 1
+            elif self._pending_signal == "take_profit":
+                self._take_profit_count += 1
+            self._sell_count += 1
+            self._last_buy_order = None
+            self._pending_signal = None
+
     @staticmethod
     def _calc_ema(prev_ema: Optional[Decimal], price: Decimal, period: int) -> Decimal:
-        """计算EMA"""
         multiplier = Decimal("2") / Decimal(period + 1)
         if prev_ema is None:
             return price
@@ -81,7 +94,6 @@ class MACDStrategy(StrategyBase):
         self._fast_ema = self._calc_ema(self._fast_ema, current_price, self._fast_period)
         self._slow_ema = self._calc_ema(self._slow_ema, current_price, self._slow_period)
 
-        # 需要足够数据让EMA稳定
         if self._kline_count < self._slow_period:
             return
 
@@ -106,40 +118,29 @@ class MACDStrategy(StrategyBase):
     def _handle_position(self, kline: KLine, base_balance: Decimal, dif_above_dea: bool) -> None:
         current_price = kline.close_price
 
-        # 止损
         if self._last_buy_order is not None and self._drawdown_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change < -self._drawdown_rate:
+                self._pending_signal = "stop_loss"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._stop_loss_count += 1
-                self._last_buy_order = None
                 return
 
-        # 止盈
         if self._last_buy_order is not None and self._take_profit_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change > self._take_profit_rate:
+                self._pending_signal = "take_profit"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._take_profit_count += 1
-                self._last_buy_order = None
                 return
 
-        # 死叉卖出
         if self._prev_dif_above_dea and not dif_above_dea:
+            self._pending_signal = "signal"
             self.context.sell(kline.open_time, current_price, base_balance)
-            self._sell_count += 1
-            self._last_buy_order = None
 
     def _handle_no_position(self, kline: KLine, quote_balance: Decimal, dif_above_dea: bool) -> None:
-        # 金叉买入
         if not self._prev_dif_above_dea and dif_above_dea:
             current_price = kline.close_price
             quantity = quote_balance / current_price
             quantity = quantity.quantize(Decimal("0.0000"), rounding=ROUND_DOWN)
 
             if quantity > Decimal("0"):
-                order = self.context.buy(kline.open_time, current_price, quantity)
-                self._last_buy_order = order
-                self._buy_count += 1
+                self.context.buy(kline.open_time, current_price, quantity)

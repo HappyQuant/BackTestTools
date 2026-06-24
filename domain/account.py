@@ -17,8 +17,7 @@ class Account:
     base_balance: Decimal = Decimal("0")
     quote_balance: Decimal = Decimal("0")
     fee_rate: Decimal = Decimal("0")
-    base_fee: Decimal = Decimal("0")
-    quote_fee: Decimal = Decimal("0")
+    total_fee: Decimal = Decimal("0")
     orders: List[Order] = field(default_factory=list)
 
     def set_balance(self, base: Decimal, quote: Decimal) -> None:
@@ -35,8 +34,8 @@ class Account:
     def get_balance(self) -> tuple[Decimal, Decimal]:
         return self.base_balance, self.quote_balance
 
-    def get_total_fee(self) -> tuple[Decimal, Decimal]:
-        return self.base_fee, self.quote_fee
+    def get_total_fee(self) -> Decimal:
+        return self.total_fee
 
     def buy(self, ts: int, price: Decimal, quantity: Decimal) -> Order:
         if price <= Decimal("0"):
@@ -45,15 +44,15 @@ class Account:
             raise ValueError("quantity must be positive")
 
         cost = price * quantity
-        if cost > self.quote_balance:
+        fee = cost * self.fee_rate
+        if cost + fee > self.quote_balance:
             raise InsufficientBalanceError(
-                f"Insufficient quote balance: need {cost}, have {self.quote_balance}"
+                f"Insufficient quote balance: need {cost + fee}, have {self.quote_balance}"
             )
 
-        fee = quantity * self.fee_rate
-        self.base_balance += quantity - fee
-        self.quote_balance -= cost
-        self.base_fee += fee
+        self.base_balance += quantity
+        self.quote_balance -= cost + fee
+        self.total_fee += fee
 
         order = Order(ts, Side.Buy, price, quantity, fee)
         self.orders.append(order)
@@ -73,7 +72,7 @@ class Account:
         self.base_balance -= quantity
         fee = price * quantity * self.fee_rate
         self.quote_balance += price * quantity - fee
-        self.quote_fee += fee
+        self.total_fee += fee
 
         order = Order(ts, Side.Sell, price, quantity, fee)
         self.orders.append(order)

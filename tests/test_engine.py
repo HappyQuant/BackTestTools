@@ -15,6 +15,13 @@ class SimpleTestStrategy(StrategyBase):
         self.buy_called = False
         self.sell_called = False
 
+    def _on_order_executed(self, order):
+        from domain import Side
+        if order.side == Side.Buy:
+            self.buy_called = True
+        else:
+            self.sell_called = True
+
     def _process_kline(self, kline):
         self.kline_count += 1
 
@@ -23,10 +30,8 @@ class SimpleTestStrategy(StrategyBase):
         if base == Decimal("0") and not self.buy_called:
             quantity = quote / kline.close_price / 2
             self.context.buy(kline.open_time, kline.close_price, quantity)
-            self.buy_called = True
         elif base > Decimal("0") and not self.sell_called:
             self.context.sell(kline.open_time, kline.close_price, base)
-            self.sell_called = True
 
 
 class TestBackTestEngine(unittest.TestCase):
@@ -51,9 +56,8 @@ class TestBackTestEngine(unittest.TestCase):
         account.set_balance(Decimal("0"), Decimal("10000"))
         account.set_fee_rate(Decimal("0.001"))
 
-        strategy = SimpleTestStrategy(account)
-
         engine = BackTestEngine(self.provider, config, account)
+        strategy = SimpleTestStrategy(engine.broker)
         engine.add_strategy(strategy)
         engine.run()
 

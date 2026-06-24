@@ -34,8 +34,8 @@ class TestAccount(unittest.TestCase):
 
         self.assertEqual(order.quantity, Decimal("10"))
         base, quote = self.account.get_balance()
-        self.assertAlmostEqual(float(base), float(Decimal("9.99")))
-        self.assertEqual(quote, Decimal("9000"))
+        self.assertEqual(base, Decimal("10"))
+        self.assertEqual(quote, Decimal("8999"))
 
     def test_buy_insufficient_balance(self):
         self.account.set_balance(Decimal("0"), Decimal("100"))

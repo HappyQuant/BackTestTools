@@ -38,16 +38,15 @@ def run_ma_trend():
     initial_quote = Decimal("10000")
     account = create_account(initial_quote)
 
+    engine = BackTestEngine(provider, config, account)
     strategy = MovingAverageTrendStrategy(
-        context=account,
+        context=engine.broker,
         fast_ma_period=10,
         slow_ma_period=50,
         trend_strength=Decimal("0.001"),
         drawdown_rate=Decimal("0.05"),
         take_profit_rate=Decimal("0.10")
     )
-
-    engine = BackTestEngine(provider, config, account)
     engine.add_strategy(strategy)
     engine.run()
 
@@ -67,15 +66,14 @@ def run_dual_ma():
     initial_quote = Decimal("10000")
     account = create_account(initial_quote)
 
+    engine = BackTestEngine(provider, config, account)
     strategy = DualMACrossStrategy(
-        context=account,
+        context=engine.broker,
         fast_period=10,
         slow_period=30,
         drawdown_rate=Decimal("0.05"),
         take_profit_rate=Decimal("0.10")
     )
-
-    engine = BackTestEngine(provider, config, account)
     engine.add_strategy(strategy)
     engine.run()
 
@@ -94,15 +92,14 @@ def run_bollinger():
     initial_quote = Decimal("10000")
     account = create_account(initial_quote)
 
+    engine = BackTestEngine(provider, config, account)
     strategy = BollingerBandsStrategy(
-        context=account,
+        context=engine.broker,
         period=20,
         num_std=Decimal("2"),
         drawdown_rate=Decimal("0.05"),
         take_profit_rate=Decimal("0.10")
     )
-
-    engine = BackTestEngine(provider, config, account)
     engine.add_strategy(strategy)
     engine.run()
 
@@ -121,16 +118,15 @@ def run_rsi():
     initial_quote = Decimal("10000")
     account = create_account(initial_quote)
 
+    engine = BackTestEngine(provider, config, account)
     strategy = RSIStrategy(
-        context=account,
+        context=engine.broker,
         period=14,
         oversold_threshold=Decimal("30"),
         overbought_threshold=Decimal("70"),
         drawdown_rate=Decimal("0.05"),
         take_profit_rate=Decimal("0.10")
     )
-
-    engine = BackTestEngine(provider, config, account)
     engine.add_strategy(strategy)
     engine.run()
 
@@ -150,16 +146,15 @@ def run_macd():
     initial_quote = Decimal("10000")
     account = create_account(initial_quote)
 
+    engine = BackTestEngine(provider, config, account)
     strategy = MACDStrategy(
-        context=account,
+        context=engine.broker,
         fast_period=12,
         slow_period=26,
         signal_period=9,
         drawdown_rate=Decimal("0.05"),
         take_profit_rate=Decimal("0.10")
     )
-
-    engine = BackTestEngine(provider, config, account)
     engine.add_strategy(strategy)
     engine.run()
 
@@ -179,15 +174,14 @@ def run_atr():
     initial_quote = Decimal("10000")
     account = create_account(initial_quote)
 
+    engine = BackTestEngine(provider, config, account)
     strategy = ATRTrailingStopStrategy(
-        context=account,
+        context=engine.broker,
         atr_period=14,
         atr_multiplier=Decimal("2"),
         breakout_period=20,
         take_profit_rate=Decimal("0.10")
     )
-
-    engine = BackTestEngine(provider, config, account)
     engine.add_strategy(strategy)
     engine.run()
 

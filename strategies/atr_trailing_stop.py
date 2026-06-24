@@ -11,7 +11,7 @@ from collections import deque
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
-from domain import KLine, Order
+from domain import KLine, Order, Side
 from engine import StrategyBase, ITradingContext
 
 
@@ -43,6 +43,7 @@ class ATRTrailingStopStrategy(StrategyBase):
         self._prev_close: Optional[Decimal] = None
         self._last_buy_order: Optional[Order] = None
         self._highest_since_buy: Optional[Decimal] = None
+        self._pending_signal: Optional[str] = None
 
         self._buy_count = 0
         self._sell_count = 0
@@ -65,8 +66,22 @@ class ATRTrailingStopStrategy(StrategyBase):
     def take_profit_count(self) -> int:
         return self._take_profit_count
 
+    def _on_order_executed(self, order: Order) -> None:
+        if order.side == Side.Buy:
+            self._last_buy_order = order
+            self._highest_since_buy = order.price
+            self._buy_count += 1
+        else:
+            if self._pending_signal == "stop_loss":
+                self._stop_loss_count += 1
+            elif self._pending_signal == "take_profit":
+                self._take_profit_count += 1
+            self._sell_count += 1
+            self._last_buy_order = None
+            self._highest_since_buy = None
+            self._pending_signal = None
+
     def _calc_tr(self, kline: KLine) -> Decimal:
-        """计算True Range"""
         high_low = kline.high_price - kline.low_price
         if self._prev_close is not None:
             high_close = abs(kline.high_price - self._prev_close)
@@ -75,10 +90,9 @@ class ATRTrailingStopStrategy(StrategyBase):
         return high_low
 
     def _calc_atr(self) -> Optional[Decimal]:
-        """计算ATR"""
         if len(self._tr_wnd) < self._atr_period:
             return None
-        return sum(self._tr_wnd) / Decimal(self._atr_period)
+        return sum(self._tr_wnd, Decimal("0")) / Decimal(self._atr_period)
 
     def _process_kline(self, kline: KLine) -> None:
         tr = self._calc_tr(kline)
@@ -100,32 +114,22 @@ class ATRTrailingStopStrategy(StrategyBase):
     def _handle_position(self, kline: KLine, base_balance: Decimal, atr: Decimal) -> None:
         current_price = kline.close_price
 
-        # 更新持仓期间最高价
         if self._highest_since_buy is None or current_price > self._highest_since_buy:
             self._highest_since_buy = current_price
 
-        # 止盈
         if self._last_buy_order is not None and self._take_profit_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change > self._take_profit_rate:
+                self._pending_signal = "take_profit"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._take_profit_count += 1
-                self._last_buy_order = None
-                self._highest_since_buy = None
                 return
 
-        # 追踪止损：价格跌破 最高价 - N倍ATR
         stop_line = max(self._highest_since_buy - self._atr_multiplier * atr, Decimal("0"))
         if current_price <= stop_line:
+            self._pending_signal = "stop_loss"
             self.context.sell(kline.open_time, current_price, base_balance)
-            self._sell_count += 1
-            self._stop_loss_count += 1
-            self._last_buy_order = None
-            self._highest_since_buy = None
 
     def _handle_no_position(self, kline: KLine, quote_balance: Decimal, atr: Decimal) -> None:
-        # 突破N日最高价买入
         if len(self._high_wnd) < self._breakout_period:
             return
 
@@ -137,7 +141,4 @@ class ATRTrailingStopStrategy(StrategyBase):
             quantity = quantity.quantize(Decimal("0.0000"), rounding=ROUND_DOWN)
 
             if quantity > Decimal("0"):
-                order = self.context.buy(kline.open_time, current_price, quantity)
-                self._last_buy_order = order
-                self._highest_since_buy = current_price
-                self._buy_count += 1
+                self.context.buy(kline.open_time, current_price, quantity)

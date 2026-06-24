@@ -126,14 +126,15 @@ def print_backtest_report(
         print(f"  策略超额收益: {float(profit_rate) - hold_profit_rate:.2f}%")
 
     # 8. 手续费统计
-    base_fee, quote_fee = account.get_total_fee()
-    total_fee = base_fee * last_price + quote_fee
+    total_fee = account.get_total_fee()
 
     print("\n【手续费统计】")
-    print(f"  Base手续费: {base_fee:.8f}")
-    print(f"  Quote手续费: {quote_fee:.2f}")
     print(f"  总手续费(Quote计价): {total_fee:.2f}")
-    print(f"  手续费占收益比例: {float(total_fee / profit * 100) if profit > 0 else 0:.2f}%")
+    if profit > 0:
+        fee_ratio = float(total_fee / profit * 100)
+        print(f"  手续费占收益比例: {fee_ratio:.2f}%")
+    else:
+        print(f"  手续费占收益比例: N/A (亏损)")
 
     # 9. 订单详情
     print("\n【订单详情】")

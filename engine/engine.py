@@ -1,7 +1,8 @@
-from typing import List
+from typing import List, Optional
 
 from data import IKLineProvider
 from domain import Account
+from engine.broker import PendingOrderBroker
 from engine.config import BackTestConfig
 from engine.feeder import KLineFeeder
 from engine.strategy_base import IStrategy
@@ -19,6 +20,7 @@ class BackTestEngine:
         self._provider = provider
         self._config = config
         self._account = account
+        self._broker = PendingOrderBroker(account)
         self._strategies: List[IStrategy] = []
 
     def add_strategy(self, strategy: IStrategy) -> "BackTestEngine":
@@ -37,6 +39,17 @@ class BackTestEngine:
             strategy.on_start()
 
         for kline in feeder:
+            # 先执行上一根K线产生的待处理订单（以当前K线开盘价成交）
+            self._broker.execute_pending(kline)
+
+            # 通知策略有新订单成交
+            executed = self._broker.last_executed_order
+            if executed is not None:
+                for strategy in self._strategies:
+                    if hasattr(strategy, '_on_order_executed'):
+                        strategy._on_order_executed(executed)
+
+            # 然后让策略处理当前K线
             for strategy in self._strategies:
                 strategy.on_kline(kline)
 
@@ -46,3 +59,7 @@ class BackTestEngine:
     @property
     def account(self) -> Account:
         return self._account
+
+    @property
+    def broker(self) -> PendingOrderBroker:
+        return self._broker

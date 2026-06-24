@@ -2,7 +2,7 @@
 RSI超买超卖策略
 
 策略逻辑：
-1. 计算RSI(Relative Strength Index)指标
+1. 计算RSI(Relative Strength Index)指标（Wilder平滑法）
 2. 买入信号：RSI低于超卖阈值，认为超卖反弹
 3. 卖出信号：RSI高于超买阈值，认为超买回落
 """
@@ -10,7 +10,7 @@ from collections import deque
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
-from domain import KLine, Order
+from domain import KLine, Order, Side
 from engine import StrategyBase, ITradingContext
 
 
@@ -42,7 +42,10 @@ class RSIStrategy(StrategyBase):
         self._gains: deque[Decimal] = deque(maxlen=period)
         self._losses: deque[Decimal] = deque(maxlen=period)
         self._prev_price: Optional[Decimal] = None
+        self._avg_gain: Optional[Decimal] = None
+        self._avg_loss: Optional[Decimal] = None
         self._last_buy_order: Optional[Order] = None
+        self._pending_signal: Optional[str] = None
 
         self._buy_count = 0
         self._sell_count = 0
@@ -65,18 +68,35 @@ class RSIStrategy(StrategyBase):
     def take_profit_count(self) -> int:
         return self._take_profit_count
 
+    def _on_order_executed(self, order: Order) -> None:
+        if order.side == Side.Buy:
+            self._last_buy_order = order
+            self._buy_count += 1
+        else:
+            if self._pending_signal == "stop_loss":
+                self._stop_loss_count += 1
+            elif self._pending_signal == "take_profit":
+                self._take_profit_count += 1
+            self._sell_count += 1
+            self._last_buy_order = None
+            self._pending_signal = None
+
     def _calc_rsi(self) -> Optional[Decimal]:
-        """计算RSI值"""
+        """计算RSI值（Wilder平滑法）"""
         if len(self._gains) < self._period:
             return None
 
-        avg_gain = sum(self._gains) / Decimal(self._period)
-        avg_loss = sum(self._losses) / Decimal(self._period)
+        if self._avg_gain is None:
+            self._avg_gain = sum(self._gains, Decimal("0")) / Decimal(self._period)
+            self._avg_loss = sum(self._losses, Decimal("0")) / Decimal(self._period)
+        else:
+            self._avg_gain = (self._avg_gain * Decimal(self._period - 1) + self._gains[-1]) / Decimal(self._period)
+            self._avg_loss = (self._avg_loss * Decimal(self._period - 1) + self._losses[-1]) / Decimal(self._period)
 
-        if avg_loss == Decimal("0"):
+        if self._avg_loss == Decimal("0"):
             return Decimal("100")
 
-        rs = avg_gain / avg_loss
+        rs = self._avg_gain / self._avg_loss
         rsi = Decimal("100") - (Decimal("100") / (Decimal("1") + rs))
         return rsi
 
@@ -102,39 +122,28 @@ class RSIStrategy(StrategyBase):
             self._handle_no_position(kline, quote_balance, current_price, rsi)
 
     def _handle_position(self, kline: KLine, base_balance: Decimal, current_price: Decimal, rsi: Decimal) -> None:
-        # 止损
         if self._last_buy_order is not None and self._drawdown_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change < -self._drawdown_rate:
+                self._pending_signal = "stop_loss"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._stop_loss_count += 1
-                self._last_buy_order = None
                 return
 
-        # 止盈
         if self._last_buy_order is not None and self._take_profit_rate is not None:
             price_change = (current_price - self._last_buy_order.price) / self._last_buy_order.price
             if price_change > self._take_profit_rate:
+                self._pending_signal = "take_profit"
                 self.context.sell(kline.open_time, current_price, base_balance)
-                self._sell_count += 1
-                self._take_profit_count += 1
-                self._last_buy_order = None
                 return
 
-        # RSI超买卖出
         if rsi >= self._overbought_threshold:
+            self._pending_signal = "signal"
             self.context.sell(kline.open_time, current_price, base_balance)
-            self._sell_count += 1
-            self._last_buy_order = None
 
     def _handle_no_position(self, kline: KLine, quote_balance: Decimal, current_price: Decimal, rsi: Decimal) -> None:
-        # RSI超卖买入
         if rsi <= self._oversold_threshold:
             quantity = quote_balance / current_price
             quantity = quantity.quantize(Decimal("0.0000"), rounding=ROUND_DOWN)
 
             if quantity > Decimal("0"):
-                order = self.context.buy(kline.open_time, current_price, quantity)
-                self._last_buy_order = order
-                self._buy_count += 1
+                self.context.buy(kline.open_time, current_price, quantity)

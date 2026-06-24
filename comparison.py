@@ -110,16 +110,15 @@ def run_single_backtest(
     account.set_balance(Decimal("0"), initial_quote)
     account.set_fee_rate(fee_rate)
 
+    engine = BackTestEngine(provider, config, account)
     strategy = MovingAverageTrendStrategy(
-        context=account,
+        context=engine.broker,
         fast_ma_period=strategy_config.fast_ma_period,
         slow_ma_period=strategy_config.slow_ma_period,
         trend_strength=strategy_config.trend_strength,
         drawdown_rate=strategy_config.drawdown_rate,
         take_profit_rate=strategy_config.take_profit_rate
     )
-
-    engine = BackTestEngine(provider, config, account)
     engine.add_strategy(strategy)
     engine.run()
 
@@ -137,8 +136,7 @@ def run_single_backtest(
             / strategy.first_kline.close_price * 100
         )
 
-    base_fee, quote_fee = account.get_total_fee()
-    total_fee = base_fee * last_price + quote_fee
+    total_fee = account.get_total_fee()
 
     return BacktestResult(
         interval=interval,
