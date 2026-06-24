@@ -9,13 +9,14 @@ from typing import Optional
 
 from domain import KLine, Order, Side
 from domain.account import Account, InsufficientBalanceError
-from engine.strategy_base import ITradingContext
+from engine.strategy_base import ITradingContext, StrategyBase
 
 
 class PendingOrder:
-    __slots__ = ('side', 'quantity', 'signal')
+    __slots__ = ('strategy', 'side', 'quantity', 'signal')
 
-    def __init__(self, side: Side, quantity: Decimal, signal: Optional[str] = None):
+    def __init__(self, strategy: StrategyBase, side: Side, quantity: Decimal, signal: Optional[str] = None):
+        self.strategy = strategy
         self.side = side
         self.quantity = quantity
         self.signal = signal
@@ -27,28 +28,31 @@ class PendingOrderBroker(ITradingContext):
     def __init__(self, account: Account):
         self._account = account
         self._pending: Optional[PendingOrder] = None
+        self._current_strategy: Optional[StrategyBase] = None
 
     def get_balance(self) -> tuple[Decimal, Decimal]:
         return self._account.get_balance()
 
-    def buy(self, ts: int, price: Decimal, quantity: Decimal, signal: Optional[str] = None) -> None:
+    def _place_order(self, strategy: StrategyBase, side: Side, quantity: Decimal, signal: Optional[str] = None) -> None:
         if self._pending is not None:
             raise ValueError("已有待执行订单，不能重复下单")
-        self._pending = PendingOrder(Side.Buy, quantity, signal)
+        self._pending = PendingOrder(strategy, side, quantity, signal)
+
+    def buy(self, ts: int, price: Decimal, quantity: Decimal, signal: Optional[str] = None) -> None:
+        # Called by strategy via ITradingContext — strategy is determined at engine level
+        self._place_order(self._current_strategy, Side.Buy, quantity, signal)
 
     def sell(self, ts: int, price: Decimal, quantity: Decimal, signal: Optional[str] = None) -> None:
-        if self._pending is not None:
-            raise ValueError("已有待执行订单，不能重复下单")
-        self._pending = PendingOrder(Side.Sell, quantity, signal)
+        self._place_order(self._current_strategy, Side.Sell, quantity, signal)
 
-    def execute_pending(self, kline: KLine) -> Optional[tuple[Order, Optional[str]]]:
-        """在下一根K线到来时，以开盘价执行待处理订单
+    def set_current_strategy(self, strategy: StrategyBase) -> None:
+        """设置当前正在处理K线的策略（由引擎调用）"""
+        self._current_strategy = strategy
 
-        Returns:
-            (executed_order, signal) 如果成功执行，或 None 如果没有待处理订单或执行失败
-        """
+    def execute_pending(self, kline: KLine) -> None:
+        """在下一根K线到来时，以开盘价执行待处理订单，并通知对应策略"""
         if self._pending is None:
-            return None
+            return
 
         order = self._pending
         self._pending = None
@@ -58,9 +62,9 @@ class PendingOrderBroker(ITradingContext):
                 result = self._account.buy(kline.open_time, kline.open_price, order.quantity)
             else:
                 result = self._account.sell(kline.open_time, kline.open_price, order.quantity)
-            return result, order.signal
+            order.strategy._on_order_executed(result, order.signal)
         except InsufficientBalanceError:
-            return None
+            order.strategy._on_order_failed(order.side, order.quantity, order.signal)
 
     @property
     def account(self) -> Account:

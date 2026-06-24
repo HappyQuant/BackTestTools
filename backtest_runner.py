@@ -90,11 +90,10 @@ def print_backtest_report(
 
     # 5. 交易统计
     print("\n【交易统计】")
-    if hasattr(strategy, "buy_count"):
-        print(f"  买入次数: {strategy.buy_count}")
-        print(f"  卖出次数: {strategy.sell_count}")
-        print(f"  止损次数: {strategy.stop_loss_count}")
-        print(f"  止盈次数: {strategy.take_profit_count}")
+    print(f"  买入次数: {strategy.buy_count}")
+    print(f"  卖出次数: {strategy.sell_count}")
+    print(f"  止损次数: {strategy.stop_loss_count}")
+    print(f"  止盈次数: {strategy.take_profit_count}")
 
     # 6. 最终资产
     base, quote = account.get_balance()

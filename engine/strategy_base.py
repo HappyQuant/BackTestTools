@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import List, Optional, Protocol, runtime_checkable
 
-from domain import KLine, Order
+from domain import KLine, Order, Side
 
 
 @runtime_checkable
@@ -67,6 +67,10 @@ class StrategyBase:
 
     def _on_order_executed(self, order: Order, signal: Optional[str] = None) -> None:
         """当延迟执行的订单实际成交时调用，子类可重写"""
+        pass
+
+    def _on_order_failed(self, side: Side, quantity: Decimal, signal: Optional[str] = None) -> None:
+        """当延迟执行的订单因余额不足失败时调用，子类可重写"""
         pass
 
     def _process_kline(self, kline: KLine) -> None:
