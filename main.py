@@ -40,10 +40,9 @@ def run_ma_trend():
 
     strategy = MovingAverageTrendStrategy(
         context=account,
-        kline_wnd_size=50,
-        avg_wnd_size=50,
-        buy_volatility_rate=Decimal("0.001"),
-        sell_volatility_rate=Decimal("0.001"),
+        fast_ma_period=10,
+        slow_ma_period=50,
+        trend_strength=Decimal("0.001"),
         drawdown_rate=Decimal("0.05"),
         take_profit_rate=Decimal("0.10")
     )
@@ -53,10 +52,9 @@ def run_ma_trend():
     engine.run()
 
     print_backtest_report(account, strategy, config, initial_quote, {
-        "K线窗口": strategy._kline_wnd_size,
-        "均线窗口": strategy._avg_wnd_size,
-        "买入阈值": f"{float(strategy._buy_volatility) * 100:.2f}%",
-        "卖出阈值": f"{float(strategy._sell_volatility) * 100:.2f}%",
+        "快均线周期": strategy._fast_ma_period,
+        "慢均线周期": strategy._slow_ma_period,
+        "趋势强度": f"{float(strategy._trend_strength) * 100:.2f}%",
         "止损率": f"{float(strategy._drawdown_rate) * 100:.2f}%",
         "止盈率": f"{float(strategy._take_profit_rate) * 100:.2f}%",
     })
